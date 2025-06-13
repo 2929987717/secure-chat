@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>临时网页加密通信系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #111827; }
+        .loader { border: 4px solid #374151; border-top: 4px solid #6366f1; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #chat-messages { scroll-behavior: smooth; }
+        .chat-image { cursor: pointer; transition: transform 0.2s; max-width: 200px; }
+        .chat-image:hover { transform: scale(1.05); }
+        .chat-bubble { max-width: 80%; }
+    </style>
+</head>
+<body class="text-gray-200 flex items-center justify-center min-h-screen p-4">
+
+    <!-- Room Selection Modal -->
+    <div id="room-modal" class="fixed inset-0 bg-gray-900 bg-opacity-90 flex items-center justify-center z-50 transition-opacity duration-300">
+        <div class="bg-slate-800 p-8 rounded-2xl shadow-2xl text-center w-full max-w-sm border border-slate-700">
+            <h2 class="text-3xl font-bold mb-4 text-white">安全通信入口</h2>
+            <p class="text-slate-400 mb-6">输入房间ID和您的专属昵称以加入频道。</p>
+            <div class="space-y-4">
+                <input type="text" id="room-id-input" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 text-center text-lg focus:ring-2 focus:ring-indigo-500" placeholder="房间ID (例如: mission-alpha)">
+                <input type="text" id="nickname-input" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-3 text-center text-lg focus:ring-2 focus:ring-indigo-500" placeholder="您的昵称 (例如: Agent 007)">
+            </div>
+            <button id="join-room-button" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition duration-300 mt-6">进入房间</button>
+        </div>
+    </div>
+
+    <!-- Decryption Modal -->
+    <div id="decryption-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-40 transition-opacity duration-300">
+        <div class="bg-slate-800 p-6 rounded-2xl shadow-2xl w-full max-w-md border border-slate-700 space-y-4 relative">
+            <button id="close-modal-button" class="absolute top-3 right-3 text-slate-500 hover:text-white transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+            <h3 class="text-xl font-bold text-center">解密图片</h3>
+            <img id="modal-decode-preview" class="rounded-lg max-h-48 mx-auto border-2 border-slate-700" alt="Decode Preview"/>
+            <div>
+                <label for="modal-decode-password" class="block text-sm font-medium text-slate-300 mb-1">解密密码</label>
+                <input type="password" id="modal-decode-password" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 focus:ring-1 focus:ring-indigo-500">
+            </div>
+            <button id="modal-decode-button" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 rounded-lg transition flex items-center justify-center gap-2">
+               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+               解密
+            </button>
+            <div id="modal-decode-output" class="mt-2 hidden">
+                <label class="block text-sm font-medium text-slate-300 mb-1">解密结果:</label>
+                <textarea id="modal-revealed-message" rows="3" class="w-full bg-slate-700 border-slate-600 rounded-lg p-2 text-green-300" readonly></textarea>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Full screen loader -->
+    <div id="loader-overlay" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 flex-col">
+        <div class="loader"></div>
+        <p id="loader-text" class="text-slate-300 mt-4 text-lg">处理中...</p>
+    </div>
+
+    <div class="w-full max-w-6xl h-[95vh] bg-slate-800 rounded-2xl shadow-2xl p-4 md:p-6 flex space-x-6 hidden" id="main-app">
+        <!-- Left Panel: Chat -->
+        <div class="flex-1 flex flex-col bg-slate-900 rounded-lg p-4 border border-slate-700">
+            <div class="flex items-center justify-between mb-4 pb-4 border-b border-slate-700">
+                <div class="text-left">
+                    <span class="text-xs text-slate-400">频道</span>
+                    <h2 id="room-id-display" class="text-xl font-bold text-indigo-400"></h2>
+                </div>
+                 <div class="text-right">
+                    <span class="text-xs text-slate-400">用户</span>
+                    <h2 id="nickname-display" class="text-xl font-bold"></h2>
+                </div>
+                <button id="change-room-button" title="更换房间" class="text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 font-semibold p-2 rounded-full transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                </button>
+            </div>
+            <div id="chat-messages" class="flex-1 overflow-y-auto space-y-6 pr-2">
+                <!-- Chat messages will appear here -->
+            </div>
+        </div>
+
+        <!-- Right Panel: Steganography Tool -->
+        <div class="w-full max-w-md flex flex-col space-y-4">
+            <div class="bg-slate-900 rounded-lg p-4 border border-slate-700 flex-1 flex flex-col">
+                <h3 class="text-xl font-bold mb-4 text-center">加密与发送</h3>
+                <div class="space-y-4 flex-1 flex flex-col">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300">1. 载体图片 (PNG)</label>
+                        <input type="file" id="encode-file" class="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200 cursor-pointer" accept="image/png">
+                        <img id="encode-preview" class="mt-2 rounded-lg hidden max-h-24 mx-auto border-2 border-slate-700" alt="Encode Preview"/>
+                    </div>
+                     <div>
+                        <label for="secret-message" class="block text-sm font-medium text-slate-300">2. 秘密消息</label>
+                        <textarea id="secret-message" rows="3" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 focus:ring-1 focus:ring-indigo-500" placeholder="在此输入文字..."></textarea>
+                    </div>
+                    <div>
+                        <label for="encode-password" class="block text-sm font-medium text-slate-300">3. 加密密码</label>
+                        <input type="password" id="encode-password" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 focus:ring-1 focus:ring-indigo-500">
+                    </div>
+                    <div class="flex-grow"></div>
+                    <button id="send-button" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg transition flex items-center justify-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                        加密并发送
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert Message -->
+    <div id="alert-message" class="hidden fixed top-5 left-1/2 -translate-x-1/2 p-4 rounded-lg bg-red-800 text-red-200 border border-red-600 shadow-lg z-50 animate-pulse"></div>
+
+<!-- Firebase SDK -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    
+    // Your Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyC2ITTjD_70AY5dVg0b8kP_oyVk1dRtfM0",
+      authDomain: "steg-chat.firebaseapp.com",
+      projectId: "steg-chat",
+      storageBucket: "steg-chat.appspot.com",
+      messagingSenderId: "809189351656",
+      appId: "1:809189351656:web:830cde43671f8a4df6a95d",
+      measurementId: "G-5S5YPTNPFT"
+    };
+
+    // --- UI HELPER FUNCTIONS & VARIABLES ---
+    const get = id => document.getElementById(id);
+    const alertMessage = get('alert-message');
+    const loaderOverlay = get('loader-overlay');
+    const loaderText = get('loader-text');
+
+    function showAlert(text) {
+        alertMessage.textContent = text;
+        alertMessage.classList.remove('hidden');
+        setTimeout(() => alertMessage.classList.add('hidden'), 5000);
+    }
+    function showLoader(text) { loaderText.textContent = text; loaderOverlay.classList.remove('hidden'); }
+    function hideLoader() { loaderOverlay.classList.add('hidden'); }
+
+    // --- Firebase Initialization ---
+    let db, auth;
+    try {
+        const app = initializeApp(firebaseConfig);
+        db = getFirestore(app);
+        auth = getAuth(app);
+        await signInAnonymously(auth);
+    } catch (e) {
+        console.error("Firebase initialization failed:", e);
+        showAlert("Firebase初始化失败! 请检查配置,并在Firebase控制台Authentication->Sign-in method中启用'Anonymous'登录。");
+    }
+    
+    // --- Steganography and Crypto Code ---
+    const END_OF_MESSAGE_MARKER = new TextEncoder().encode("$$END$$");
+    const cryptoUtils = {
+        getKey: async (password, salt) => {
+            const enc = new TextEncoder();
+            const keyMaterial = await window.crypto.subtle.importKey( "raw", enc.encode(password), { name: "PBKDF2" }, false, ["deriveBits", "deriveKey"]);
+            return window.crypto.subtle.deriveKey( { "name": "PBKDF2", salt: salt, "iterations": 100000, "hash": "SHA-256" }, keyMaterial, { "name": "AES-GCM", "length": 256 }, true, ["encrypt", "decrypt"]);
+        },
+        encrypt: async (plaintext, password) => {
+            const salt = window.crypto.getRandomValues(new Uint8Array(16));
+            const iv = window.crypto.getRandomValues(new Uint8Array(12));
+            const key = await cryptoUtils.getKey(password, salt);
+            const encodedPlaintext = new TextEncoder().encode(plaintext);
+            const ciphertext = await window.crypto.subtle.encrypt( { name: "AES-GCM", iv: iv }, key, encodedPlaintext);
+            const payload = new Uint8Array(salt.length + iv.length + ciphertext.byteLength);
+            payload.set(salt, 0); payload.set(iv, salt.length); payload.set(new Uint8Array(ciphertext), salt.length + iv.length);
+            return payload;
+        },
+        decrypt: async (payload, password) => {
+            try {
+                const salt = payload.slice(0, 16);
+                const iv = payload.slice(16, 28);
+                const ciphertext = payload.slice(28);
+                const key = await cryptoUtils.getKey(password, salt);
+                const decrypted = await window.crypto.subtle.decrypt( { name: "AES-GCM", iv: iv }, key, ciphertext);
+                return new TextDecoder().decode(decrypted);
+            } catch (e) { console.error("Decryption failed:", e); return null; }
+        }
+    };
+    const steganography = {
+        encode: (ctx, img, data) => {
+            const dataToHide = new Uint8Array(data.length + END_OF_MESSAGE_MARKER.length);
+            dataToHide.set(data, 0); dataToHide.set(END_OF_MESSAGE_MARKER, data.length);
+            let dataIndex = 0, bitIndex = 0;
+            const canvas = ctx.canvas;
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const pixels = imageData.data;
+            if ((dataToHide.length * 8) > (pixels.length / 4 * 3)) { throw new Error("信息过长，无法在此图片中隐藏。"); }
+            for (let i = 0; i < pixels.length; i += 4) { 
+                for (let j = 0; j < 3; j++) {
+                    if (dataIndex < dataToHide.length) {
+                        const bit = (dataToHide[dataIndex] >> (7 - bitIndex)) & 1;
+                        pixels[i + j] = (pixels[i + j] & 0xFE) | bit;
+                        bitIndex++;
+                        if (bitIndex === 8) { bitIndex = 0; dataIndex++; }
+                    } else { ctx.putImageData(imageData, 0, 0); return; }
+                }
+            }
+        },
+        decode: (ctx, img) => {
+            const canvas = ctx.canvas;
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const pixels = imageData.data;
+            let extractedBytes = [], currentByte = 0, bitCount = 0;
+            for (let i = 0; i < pixels.length; i += 4) {
+                for (let j = 0; j < 3; j++) {
+                    const lsb = pixels[i + j] & 1;
+                    currentByte = (currentByte << 1) | lsb;
+                    bitCount++;
+                    if (bitCount === 8) {
+                        extractedBytes.push(currentByte);
+                        const currentData = new Uint8Array(extractedBytes);
+                        if (currentData.length >= END_OF_MESSAGE_MARKER.length) {
+                            const tail = currentData.slice(-END_OF_MESSAGE_MARKER.length);
+                            let match = true;
+                            for(let k = 0; k < END_OF_MESSAGE_MARKER.length; k++) { if (tail[k] !== END_OF_MESSAGE_MARKER[k]) { match = false; break; } }
+                            if (match) { return currentData.slice(0, -END_OF_MESSAGE_MARKER.length); }
+                        }
+                        currentByte = 0; bitCount = 0;
+                    }
+                }
+            }
+            return null;
+        }
+    };
+    
+    // --- MAIN APP LOGIC ---
+    let selectedImageForDecode = null;
+    let unsubscribe;
+    let currentRoomId = null;
+    let currentNickname = null;
+
+    function listenForMessages(roomId) {
+        if (unsubscribe) unsubscribe(); // Unsubscribe from previous room
+        const messagesRef = collection(db, "rooms", roomId, "messages");
+        const q = query(messagesRef, orderBy("timestamp"));
+        unsubscribe = onSnapshot(q, (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "added") {
+                    displayMessage(change.doc.data());
+                }
+            });
+        });
+    }
+
+    async function sendMessage(roomId, dataUrl) {
+        if (!currentNickname) {
+            showAlert("错误：无法发送消息，未设置昵称。");
+            return;
+        }
+        const messagesRef = collection(db, "rooms", roomId, "messages");
+        try {
+            await addDoc(messagesRef, {
+                dataUrl: dataUrl,
+                sender: currentNickname, // Use nickname
+                timestamp: serverTimestamp()
+            });
+        } catch (error) {
+            console.error("Error sending message: ", error);
+            showAlert("发送消息失败，请检查网络和Firebase配置。");
+        }
+    }
+
+    function displayMessage(data) {
+        const chatMessages = get('chat-messages');
+        const messageWrapper = document.createElement('div');
+        const isSender = data.sender === currentNickname;
+        
+        messageWrapper.className = `flex flex-col ${isSender ? 'items-end' : 'items-start'}`;
+        
+        const bubble = document.createElement('div');
+        bubble.className = `chat-bubble p-2 rounded-xl ${isSender ? 'bg-indigo-600' : 'bg-slate-700'}`;
+        
+        const header = document.createElement('div');
+        header.className = 'text-xs text-slate-400 mb-1 px-1 flex justify-between w-full';
+        const senderSpan = document.createElement('span');
+        senderSpan.textContent = `发送者: ${data.sender}`;
+        header.appendChild(senderSpan);
+        
+        const img = document.createElement('img');
+        img.src = data.dataUrl;
+        img.className = 'chat-image rounded-lg';
+        img.onclick = () => {
+            get('modal-decode-preview').src = img.src;
+            get('modal-decode-output').classList.add('hidden');
+            get('modal-decode-password').value = '';
+            get('decryption-modal').classList.remove('hidden');
+            selectedImageForDecode = new Image();
+            selectedImageForDecode.src = img.src;
+            selectedImageForDecode.onerror = () => showAlert("无法加载图片进行解密。");
+        };
+        
+        bubble.appendChild(img);
+        
+        const footer = document.createElement('div');
+        footer.className = 'text-xs text-slate-400 mt-1 px-1 text-right';
+        footer.textContent = data.timestamp ? new Date(data.timestamp.seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+        messageWrapper.appendChild(header);
+        messageWrapper.appendChild(bubble);
+        messageWrapper.appendChild(footer);
+        chatMessages.appendChild(messageWrapper);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function handleLeaveRoom() {
+        if (unsubscribe) unsubscribe();
+        currentNickname = null;
+        currentRoomId = null;
+        get('chat-messages').innerHTML = '';
+        get('room-modal').classList.remove('hidden');
+        get('main-app').classList.add('hidden');
+    }
+    
+    // --- EVENT LISTENERS ---
+    get('join-room-button').addEventListener('click', () => {
+        const roomId = get('room-id-input').value.trim().toLowerCase();
+        const nickname = get('nickname-input').value.trim();
+        if (!roomId || !nickname) {
+            showAlert("请输入房间ID和昵称。");
+            return;
+        }
+        if (!db) {
+             showAlert("Firebase未初始化，无法加入房间。");
+             return;
+        }
+        
+        currentRoomId = roomId;
+        currentNickname = nickname;
+        get('room-id-display').textContent = roomId;
+        get('nickname-display').textContent = nickname;
+        get('room-modal').classList.add('hidden');
+        get('main-app').classList.remove('hidden');
+        listenForMessages(roomId);
+    });
+
+    get('change-room-button').addEventListener('click', handleLeaveRoom);
+    window.addEventListener('beforeunload', handleLeaveRoom);
+
+    get('encode-file').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            get('encode-preview').src = URL.createObjectURL(file);
+            get('encode-preview').classList.remove('hidden');
+        }
+    });
+
+    get('send-button').addEventListener('click', async () => {
+        const imageFile = get('encode-file').files[0];
+        const message = get('secret-message').value;
+        const password = get('encode-password').value;
+
+        if (!imageFile || !message || !password) {
+            showAlert("请选择图片、输入消息和密码。");
+            return;
+        }
+
+        showLoader("加密并编码图片...");
+        try {
+            const encryptedData = await cryptoUtils.encrypt(message, password);
+            const img = new Image();
+            img.src = URL.createObjectURL(imageFile);
+            await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width; canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            
+            steganography.encode(ctx, img, encryptedData);
+            const dataUrl = canvas.toDataURL('image/png');
+            
+            showLoader("发送到通信频道...");
+            await sendMessage(currentRoomId, dataUrl);
+            get('secret-message').value = '';
+        } catch (e) {
+            showAlert(`错误: ${e.message}`);
+        } finally {
+            hideLoader();
+        }
+    });
+    
+    // --- MODAL DECRYPTION LOGIC ---
+    get('close-modal-button').addEventListener('click', () => {
+        get('decryption-modal').classList.add('hidden');
+    });
+
+    get('modal-decode-button').addEventListener('click', async () => {
+        const password = get('modal-decode-password').value;
+        if (!selectedImageForDecode || !password) {
+            showAlert("图片未选中或未输入解密密码。");
+            return;
+        }
+
+        showLoader("解密中...");
+        try {
+            const canvas = document.createElement('canvas');
+            await new Promise((resolve, reject) => {
+                if (selectedImageForDecode.complete) { resolve(); } 
+                else { selectedImageForDecode.onload = resolve; selectedImageForDecode.onerror = reject; }
+            });
+
+            canvas.width = selectedImageForDecode.width; canvas.height = selectedImageForDecode.height;
+            const ctx = canvas.getContext('2d');
+            const extractedData = steganography.decode(ctx, selectedImageForDecode);
+            
+            if (!extractedData) throw new Error("未找到隐藏信息。");
+            
+            const decryptedMessage = await cryptoUtils.decrypt(extractedData, password);
+            if (decryptedMessage === null) throw new Error("解密失败，密码错误或数据损坏。");
+            
+            get('modal-revealed-message').value = decryptedMessage;
+            get('modal-decode-output').classList.remove('hidden');
+        } catch (e) {
+            showAlert(`错误: ${e.message}`);
+            // Still show the modal, but with an error state perhaps
+            get('modal-revealed-message').value = `解密出错: ${e.message}`;
+            get('modal-decode-output').classList.remove('hidden');
+        } finally {
+            hideLoader();
+        }
+    });
+
+</script>
+</body>
+</html>
